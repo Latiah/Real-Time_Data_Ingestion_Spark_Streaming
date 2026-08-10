@@ -1,0 +1,8 @@
+# Local PostgreSQL connection template
+# Do not commit real credentials. Configure the Spark job with environment variables.
+host=localhost
+port=5432
+database=events_db
+user=postgres
+password=<set-POSTGRES_PASSWORD-in-your-shell>
+table=public.user_events
