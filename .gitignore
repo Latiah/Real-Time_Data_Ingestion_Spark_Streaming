@@ -1,2 +1,35 @@
+# Secrets
 .env
-data/*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+
+# Spark
+spark-warehouse/
+derby.log
+metastore_db/
+
+# Runtime/generated data -- these are produced by running the pipeline,
+# not part of the source repository
+logs/*
+!logs/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep
+data/incoming/*
+!data/incoming/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+outputs/performance/*
+!outputs/performance/.gitkeep
+
+# JDBC driver jar (downloaded locally, see docs/user_guide.md)
+drivers/

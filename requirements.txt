@@ -1,5 +1,9 @@
-# The Spark runtime can also be installed by the cluster/package manager.
-# System prerequisite: install OpenJDK 17 with your operating-system package manager.
-# Ubuntu/Debian: sudo apt install openjdk-17-jdk
-pyspark>=3.4
+# Python dependencies
+pyyaml==6.0.2
+python-dotenv==1.0.1
 psycopg[binary]>=3.2
+# Spark (PySpark) -- provides pyspark.sql 
+pyspark==3.5.1
+
+# Testing
+pytest==8.3.2

@@ -1,0 +1,29 @@
+# Non-secret configuration for the pipeline.
+
+paths:
+  incoming_dir: "data/incoming"
+  processed_dir: "data/processed"
+  checkpoint_dir: "checkpoints"
+  performance_dir: "outputs/performance"
+  log_dir: "logs"
+
+generator:
+  batch_size: 50          # events written per file
+  interval_seconds: 5      # seconds between file writes
+  num_users: 200
+  num_products: 50
+  purchase_probability: 0.3  # fraction of events that are "purchase" vs "view"
+
+spark:
+  app_name: "RealtimeEcommercePipeline"
+  shuffle_partitions: 4
+  trigger_interval: "5 seconds"
+
+database:
+  table_name: "events"
+  jdbc_driver_class: "org.postgresql.Driver"
+
+postgres_jdbc:
+  # Version of the JDBC driver jar expected in the environment.
+  # See docs/user_guide.md for download/setup instructions.
+  version: "42.7.3"

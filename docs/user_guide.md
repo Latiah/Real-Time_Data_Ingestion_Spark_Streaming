@@ -1,93 +1,115 @@
 # User Guide
 
-## Prerequisites
+Exact commands to run this project from a clean checkout.
 
-- Python 3.9+ and Apache Spark 3.4+
-- OpenJDK 17+
-- PostgreSQL 13+
-- PostgreSQL JDBC driver available to Spark
-
-On Ubuntu/Debian, install Java separately from Python packages:
+## 1. Create a virtual environment and install dependencies
 
 ```bash
-sudo apt update
-xargs sudo apt install -y < system-requirements.txt
-java -version
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-## 1. Configure PostgreSQL
+## 2. Configure PostgreSQL
 
-Create a database named `events_db`, then run `sql/postgres_setup.sql` while connected to it:
+Make sure PostgreSQL is installed and running, then:
 
 ```bash
-createdb events_db
-psql -d events_db -f sql/postgres_setup.sql
+cp .env.example .env
+# edit .env: set POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER,
+# POSTGRES_PASSWORD to real values for your local PostgreSQL instance.
 ```
 
-The file `docs/postgres_connection_details.txt` is a template. Set the real password only in the shell:
+## 3. Set up the database schema
 
 ```bash
-export POSTGRES_HOST=localhost
-export POSTGRES_PORT=5432
-export POSTGRES_DATABASE=events_db
-export POSTGRES_USER=postgres
-export POSTGRES_PASSWORD='your-password'
+./scripts/setup_database.sh
 ```
 
-## 2. Start the Spark job
+This runs `sql/postgres_setup.sql` (creates the database, if missing) and
+`sql/create_tables.sql` (creates the `events` table + indexes).
 
-Supply the PostgreSQL JDBC driver with `spark-submit`:
+## 4. Get the PostgreSQL JDBC driver
+
+Spark needs this jar to write to PostgreSQL:
 
 ```bash
-spark-submit \
-	--packages org.postgresql:postgresql:42.7.4 \
-	src/spark_streaming_to_postgres.py
+mkdir -p drivers
+curl -L -o drivers/postgresql-42.7.3.jar \
+  https://jdbc.postgresql.org/download/postgresql-42.7.3.jar
 ```
 
-The job watches `data/events`, processes at most one file every two seconds, and checkpoints in `data/checkpoint`.
+Then set in `.env`:
 
-## 3. Generate events
+```text
+POSTGRES_JDBC_JAR_PATH=./drivers/postgresql-42.7.3.jar
+```
 
-In a second terminal, run a finite smoke test:
+## 5. Generate events
+
+In one terminal:
 
 ```bash
-python src/data_generator.py --batches 5 --events-per-batch 25 --interval-seconds 2 --seed 7
+source .venv/bin/activate
+./scripts/generate_events.sh
 ```
 
-For continuous generation, omit `--batches`. Stop either process with `Ctrl+C`. Do not delete the checkpoint directory while reusing the same input stream; use a new checkpoint when intentionally replaying files.
+This writes a new CSV file into `data/incoming/` every few seconds
+(configurable via `config/config.yaml` → `generator.interval_seconds`).
+Press Ctrl+C to stop.
 
-## 4. Verify the data
+## 6. Start the streaming pipeline
+
+In a second terminal:
 
 ```bash
-psql -d events_db -c "SELECT event_type, COUNT(*) FROM public.user_events GROUP BY event_type;"
-psql -d events_db -c "SELECT * FROM public.user_events ORDER BY ingested_at DESC LIMIT 10;"
+source .venv/bin/activate
+./scripts/run_streaming.sh
 ```
 
-## 5. Understand the table writes
+You should see log lines like:
 
-Spark stores each valid micro-batch in three stages:
+```text
+Starting Spark streaming pipeline...
+Streaming query started. Watching data/incoming every 5 seconds. Checkpoint: checkpoints
+Processing micro-batch 0 (50 records)...
+Batch 0 successfully written (50 records, 0.842s).
+```
 
-1. Rows are written temporarily to `public.user_events_staging` through JDBC.
-2. PostgreSQL copies them into `public.user_events`. Duplicate `event_id` values are ignored with `ON CONFLICT DO NOTHING`.
-3. The processed staging rows are deleted, and batch counts and timestamps are recorded in `public.streaming_batch_log`.
-
-Check the final event table:
+## 7. Validate records in PostgreSQL
 
 ```bash
-psql -d events_db -c "SELECT COUNT(*) AS event_count FROM public.user_events;"
-psql -d events_db -c "SELECT event_id, event_type, price, source_file, ingested_at FROM public.user_events ORDER BY ingested_at DESC LIMIT 10;"
+psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER -d $POSTGRES_DB \
+  -f sql/validation_queries.sql
 ```
 
-Check the staging and batch-log tables:
+Or connect interactively and run individual queries from that file, e.g.:
+
+```sql
+SELECT COUNT(*) FROM events;
+SELECT event_type, COUNT(*) FROM events GROUP BY event_type;
+```
+
+## 8. Run tests
 
 ```bash
-psql -d events_db -c "SELECT COUNT(*) AS remaining_staging_rows FROM public.user_events_staging;"
-psql -d events_db -c "SELECT * FROM public.streaming_batch_log ORDER BY spark_batch_id DESC LIMIT 10;"
+pytest
 ```
 
-After a successful batch, `remaining_staging_rows` should normally be zero,
-while `event_count` and the batch log should increase.
+Integration tests that need a live PostgreSQL connection are skipped
+automatically if `.env` isn't configured or the DB is unreachable.
 
-## Useful options
+## 9. Generate a performance report
 
-The generator supports `--output-dir`, `--events-per-batch`, `--interval-seconds`, `--batches`, and `--seed`. The Spark job supports `--input-dir`, `--checkpoint-dir`, PostgreSQL connection options, `--trigger-seconds`, and `--max-files-per-trigger`. PostgreSQL options also read `POSTGRES_*` environment variables.
+After letting the pipeline run for a while (so
+`outputs/performance/batch_metrics.csv` has real rows):
+
+```bash
+python -m src.monitoring.metrics
+```
+
+## 10. Stop the pipeline
+
+Ctrl+C both the generator and the streaming job. Spark's checkpoint in
+`checkpoints/` lets you resume later without reprocessing already-ingested
+files.
