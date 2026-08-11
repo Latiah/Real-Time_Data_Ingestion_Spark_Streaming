@@ -5,7 +5,6 @@ data transformation, and PostgreSQL storage. Synthetic e-commerce events
 (`view`, `purchase`) are generated as CSV files, picked up by a genuine Spark
 Structured Streaming job, cleaned/validated, and written into PostgreSQL.
 
-This is **not** a production system — see [Limitations](#limitations) below.
 
 ## Overview
 
@@ -21,7 +20,6 @@ Python Generator -> CSV files -> Spark Structured Streaming
 - **PostgreSQL** stores the processed events, with a `UNIQUE`/primary key
   constraint on `event_id` acting as the durable duplicate-prevention layer.
 
-See `docs/architecture.md` for the full diagram and component breakdown.
 
 ## Objectives
 
@@ -147,33 +145,3 @@ Prints aggregated throughput/latency statistics computed from
 `outputs/performance/batch_metrics.csv`, which is populated automatically
 as the streaming pipeline runs. See `docs/performance_metrics.md` for
 methodology and (once measured) actual results.
-
-## Troubleshooting
-
-| Symptom | Likely Cause | Fix |
-|---|---|---|
-| `EnvironmentError: Missing required environment variables` | `.env` not created | `cp .env.example .env` and fill in values |
-| Spark job exits immediately with a JDBC `ClassNotFoundException` | Missing `--jars` flag | Use `scripts/run_streaming.sh`, not `python streaming_pipeline.py` directly |
-| No rows in PostgreSQL after running | Generator not running, or `data/incoming` empty | Confirm generator is writing files; check `logs/` |
-| `duplicate key value violates unique constraint` in logs | A batch was retried after a partial failure | Expected/handled — see `src/database/postgres.py` write-batch error handling |
-
-## Limitations
-
-- File-based streaming source, not a message broker (no Kafka) — appropriate
-  for this project's scale, not for high-throughput production use.
-- Synthetic data only; no real user traffic.
-- Single local PostgreSQL instance; no replication, partitioning, or
-  distributed deployment.
-- Limited fault tolerance: a failed micro-batch write is logged and skipped
-  rather than retried with backoff.
-- No automated cleanup of processed CSV files (`data/processed/` is reserved
-  but not currently populated by an automated archiving step).
-- Performance figures reflect a single local machine and are not
-  representative of a distributed or cloud deployment.
-
-## Future Improvements
-
-- Move processed CSVs into `data/processed/` after successful ingestion.
-- Add retry-with-backoff for transient PostgreSQL connection failures.
-- Add a lightweight dashboard over `outputs/performance/batch_metrics.csv`.
-- Extend the schema to more event types (e.g. `add_to_cart`, `checkout`).
