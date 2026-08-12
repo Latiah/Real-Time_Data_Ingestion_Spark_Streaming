@@ -8,10 +8,10 @@ paths:
   log_dir: "logs"
 
 generator:
-  batch_size: 50          # events written per file
+  batch_size: 10          # events written per file
   interval_seconds: 5      # seconds between file writes
-  num_users: 200
-  num_products: 50
+  num_users: 100
+  num_products: 40
   purchase_probability: 0.3  # fraction of events that are "purchase" vs "view"
 
 spark:

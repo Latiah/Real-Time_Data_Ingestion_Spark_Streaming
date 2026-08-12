@@ -26,8 +26,8 @@ cp .env.example .env
 ./scripts/setup_database.sh
 ```
 
-This runs `sql/postgres_setup.sql` (creates the database, if missing) and
-`sql/create_tables.sql` (creates the `events` table + indexes).
+This runs `sql/postgres_setup.sql`, which creates the database (if missing)
+and the `events` table plus indexes.
 
 ## 4. Get the PostgreSQL JDBC driver
 

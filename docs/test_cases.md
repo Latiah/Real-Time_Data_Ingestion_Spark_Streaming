@@ -51,12 +51,3 @@ since that depends on your local run.)*
 | 4 | Stop and restart the streaming job | No duplicate rows appear (checkpoint + `PRIMARY KEY` both protect against this) |
 | 5 | Manually drop a malformed CSV into `data/incoming/` (e.g. missing columns) | Job logs the issue via `DROPMALFORMED`/filtering, does not crash |
 
-## Notes on Integration Testing Scope
-
-Full automated integration testing of the live Spark streaming query
-(rather than the transformation functions alone) is intentionally not
-included — spinning up a streaming query, waiting for a trigger, and
-asserting on eventual DB state adds significant test flakiness and runtime
-for a project at this scale. The transformation logic (the part with real
-business rules) is fully unit tested; the streaming wiring itself is
-covered by the manual end-to-end test plan above.

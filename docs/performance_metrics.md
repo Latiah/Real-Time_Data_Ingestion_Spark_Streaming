@@ -31,14 +31,6 @@ pipeline runs (see `src/monitoring/metrics.py`).
   called only from live `foreachBatch` execution) — nothing in this report
   is estimated or fabricated.
 
-## Test Environment
-
-*(Fill in with your actual environment before treating results as final.)*
-
-- Machine: `<CPU / RAM / OS>`
-- Spark: version `<x.x.x>`, `local[*]` or cluster mode: `<mode>`
-- PostgreSQL: version `<x.x>`, local or remote: `<location>`
-- Generator config: `batch_size=<N>`, `interval_seconds=<N>` (from `config/config.yaml`)
 
 ## Measured Results
 
@@ -54,6 +46,3 @@ average_throughput_rows_per_sec: <pending>
 overall_throughput_rows_per_sec: <pending>
 average_latency_seconds: <pending — from validation_queries.sql query 9>
 ```
-
-No numbers are pre-filled here deliberately — see `README.md` §Limitations
-regarding the honesty of reported performance figures.

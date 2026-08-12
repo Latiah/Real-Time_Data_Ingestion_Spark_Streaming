@@ -12,14 +12,7 @@ flowchart TD
     D --> G[metrics.py<br/>batch_metrics.csv]
 ```
 
-To export this as a PNG (as required by the original project brief):
 
-```bash
-# requires @mermaid-js/mermaid-cli (npm install -g @mermaid-js/mermaid-cli)
-mmdc -i docs/architecture.md -o docs/system_architecture.png
-```
-
-(Or paste the mermaid block into https://mermaid.live and export from there.)
 
 ## Component Walkthrough
 

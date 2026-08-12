@@ -84,7 +84,7 @@ cp .env.example .env
 ./scripts/setup_database.sh
 ```
 
-This creates the `realtime_events` database and applies `sql/create_tables.sql`.
+This creates the `realtime_events` database and applies `sql/postgres_setup.sql`.
 
 ## Environment Configuration
 
