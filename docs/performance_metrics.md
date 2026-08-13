@@ -38,11 +38,11 @@ pipeline runs (see `src/monitoring/metrics.py`).
 `python -m src.monitoring.metrics`*)*
 
 ```text
-total_batches: <pending — run the pipeline first>
-total_records_processed: <pending>
-total_processing_time_seconds: <pending>
-average_batch_processing_time_seconds: <pending>
-average_throughput_rows_per_sec: <pending>
-overall_throughput_rows_per_sec: <pending>
-average_latency_seconds: <pending — from validation_queries.sql query 9>
+total_batches: 729
+total_records_processed: 10787
+total_processing_time_seconds: 644.687
+average_batch_processing_time_seconds: 0.8843
+average_throughput_rows_per_sec: 15.98
+overall_throughput_rows_per_sec: 16.73
+average_latency_seconds: 508.1782969768946396
 ```

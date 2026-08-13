@@ -8,16 +8,16 @@ paths:
   log_dir: "logs"
 
 generator:
-  batch_size: 10          # events written per file
-  interval_seconds: 5      # seconds between file writes
-  num_users: 100
-  num_products: 40
+  batch_size: 3          # events written per file
+  interval_seconds: 2     # seconds between file writes
+  num_users: 10
+  num_products: 10
   purchase_probability: 0.3  # fraction of events that are "purchase" vs "view"
 
 spark:
   app_name: "RealtimeEcommercePipeline"
   shuffle_partitions: 4
-  trigger_interval: "5 seconds"
+  trigger_interval: "2 seconds"
 
 database:
   table_name: "events"
