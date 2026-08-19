@@ -34,8 +34,19 @@ pipeline runs (see `src/monitoring/metrics.py`).
 
 ## Measured Results
 
-*(Run the pipeline, then regenerate this section with:*
-`python -m src.monitoring.metrics`*)*
+From a real pipeline run. To refresh after another run, the first six figures
+come from:
+
+```bash
+python -m src.monitoring.metrics          # or: docker compose exec spark python -m src.monitoring.metrics
+```
+
+`average_latency_seconds` is **not** produced by that command — it comes from
+query 9 in `sql/validation_queries.sql`:
+
+```sql
+SELECT AVG(EXTRACT(EPOCH FROM (ingested_at - event_timestamp))) AS avg_lag_seconds FROM events;
+```
 
 ```text
 total_batches: 729
@@ -46,3 +57,24 @@ average_throughput_rows_per_sec: 15.98
 overall_throughput_rows_per_sec: 16.73
 average_latency_seconds: 508.1782969768946396
 ```
+
+## Interpretation
+
+- **Throughput (~16 rows/sec)** is bounded by the generator, not the pipeline.
+  At `batch_size: 3` every `interval_seconds: 2`, only ~1.5 rows/sec are
+  produced, so this figure measures how fast PostgreSQL writes accepted a batch
+  once one arrived — it is not a saturation benchmark. Raising `batch_size` and
+  lowering `interval_seconds` in `config/config.yaml` is what would push toward
+  the real ceiling.
+- **Average batch write ~0.88s** for ~15 rows is dominated by per-batch fixed
+  cost (JDBC connection setup and Spark job scheduling), not row volume. Larger
+  batches should therefore raise throughput substantially without a
+  proportional rise in per-batch time.
+- **Average latency ~508s (8.5 min)** is far larger than the per-batch write
+  time because it measures `ingested_at - event_timestamp` across *every* row
+  in the table. Any backlog is included: files sitting in `data/incoming/`
+  before the streaming job started, or accumulated while it was stopped, are
+  counted from their original event timestamp. It is a measure of end-to-end
+  freshness over the whole table, not of steady-state pipeline lag. For
+  steady-state latency, restrict the query to recent rows, e.g.
+  `WHERE ingested_at > NOW() - INTERVAL '5 minutes'`.

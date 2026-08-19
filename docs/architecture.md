@@ -18,10 +18,22 @@ flowchart TD
 
 ### 1. Python Generator (`src/generator/data_generator.py`)
 
-Generates synthetic `view`/`purchase` events and writes each batch to a
-uniquely-named CSV file in `data/incoming/`. A unique filename per batch
-matters because Spark's file-source streaming detects new files by name —
-appending to one file would not trigger reprocessing.
+Generates synthetic `view`/`purchase` events and writes each batch to
+`data/incoming/events_<n>.csv`, numbering batches sequentially from 1. A
+distinct filename per batch matters because Spark's file-source streaming
+detects new files by name — appending to one file would not trigger
+reprocessing.
+
+Because Spark tracks consumed files by name, the numbering is derived from the
+files already on disk rather than from an in-memory counter: a restarted
+generator continues from the highest existing number instead of overwriting
+`events_1.csv`, whose new contents Spark would never notice.
+
+Each batch is written under a dot-prefixed temporary name and then renamed into
+place. Spark polls the directory, so a file written directly to its final name
+can be read while still partially flushed; Spark's file source ignores entries
+beginning with `.` or `_`, so the batch stays invisible until the rename
+publishes it atomically.
 
 ### 2. CSV Files (`data/incoming/`)
 

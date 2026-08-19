@@ -16,38 +16,95 @@
 pytest -v
 ```
 
+Under Docker:
+
+```powershell
+docker compose run --rm tests
+```
+
 ## Test Table
 
-| # | Test | What It Verifies | Expected Result |
-|---|---|---|---|
-| 1 | `test_generate_event_has_all_required_fields` | Generated event has exactly the CSV schema fields | Pass |
-| 2 | `test_generate_event_type_is_valid` | `event_type` is always `view` or `purchase` | Pass |
-| 3 | `test_generate_event_ids_are_unique_within_a_batch` | No duplicate `event_id`s in one batch | Pass |
-| 4 | `test_purchase_events_have_positive_quantity` | Purchases never have `quantity` 0 | Pass |
-| 5 | `test_write_events_to_csv_produces_valid_csv` | Written CSV is well-formed, correct header | Pass |
-| 6 | `test_write_events_to_csv_creates_unique_filenames` | Two writes → two distinct files | Pass |
-| 7 | `test_cast_and_clean_types_converts_numeric_strings` | String columns become correct numeric/timestamp types | Pass |
-| 8 | `test_cast_and_clean_types_null_on_bad_value` | Malformed numeric string casts to null, not a crash | Pass |
-| 9 | `test_filter_invalid_records_drops_unknown_event_type` | Unknown `event_type` rows are dropped | Pass |
-| 10 | `test_filter_invalid_records_drops_negative_price` | Negative price rows are dropped | Pass |
-| 11 | `test_filter_invalid_records_drops_purchase_with_zero_quantity` | Purchase with `quantity=0` is dropped | Pass |
-| 12 | `test_deduplicate_events_removes_duplicate_ids` | Duplicate `event_id` within a batch collapses to 1 row | Pass |
-| 13 | `test_add_derived_fields_computes_total_amount_for_purchase` | `total_amount = quantity * price` for purchases | Pass |
-| 14 | `test_transform_events_end_to_end` | Full pipeline: invalid dropped, dupes collapsed, fields added | Pass |
-| 15 | `test_events_table_exists` (integration) | `events` table exists in the target DB | Pass/Skip |
-| 16 | `test_duplicate_event_id_is_rejected` (integration) | DB rejects a second insert with the same `event_id` | Pass/Skip |
+27 automated tests. "Actual Result" records what was observed on the last run
+in this environment — see the note below the table before reading it.
 
-*(Actual results should be filled in after running the suite in your
-environment — this table intentionally does not pre-fill "Actual Result"
-since that depends on your local run.)*
+### Unit — generator (`tests/test_data_generator.py`)
+
+| # | Test | What It Verifies | Expected Result | Actual Result |
+|---|---|---|---|---|
+| 1 | `test_event_fields_are_within_configured_bounds` | `event_type`, `user_id`, `product_id`, `price` stay within configured ranges | Pass | Pass |
+| 2 | `test_views_have_zero_quantity_and_purchases_do_not` | Views have `quantity` 0; purchases have ≥ 1 | Pass | Pass |
+| 3 | `test_batch_event_ids_are_unique` | No duplicate `event_id`s in one batch | Pass | Pass |
+| 4 | `test_file_has_expected_rows_and_columns` | Written CSV is well-formed, correct header and row count | Pass | Pass |
+| 5 | `test_batches_are_numbered_sequentially_from_one` | Three writes produce `events_1.csv`, `events_2.csv`, `events_3.csv` | Pass | Pass |
+| 6 | `test_numbering_resumes_from_existing_files` | A restarted generator continues numbering instead of reusing a name Spark already consumed | Pass | Pass |
+| 7 | `test_explicit_sequence_is_honoured` | An explicit `sequence` argument sets the filename | Pass | Pass |
+| 8 | `test_existing_file_is_not_overwritten` | A colliding batch number raises `FileExistsError` rather than clobbering data | Pass | Pass |
+| 9 | `test_temp_file_is_renamed_away_after_write` | Batch is published by atomic rename; no `.tmp` file left behind | Pass | Pass |
+| 10 | `test_empty_directory_starts_at_one` | Numbering starts at 1 in a fresh directory | Pass | Pass |
+| 11 | `test_non_matching_filenames_are_ignored` | Unrelated files (including old timestamp-named output) don't affect numbering | Pass | Pass |
+| 12 | `test_highest_number_wins_regardless_of_lexical_order` | Scan compares numerically, so `events_10.csv` beats `events_9.csv` | Pass | Pass |
+
+### Unit — transformations (`tests/test_transformations.py`)
+
+| # | Test | What It Verifies | Expected Result | Actual Result |
+|---|---|---|---|---|
+| 13 | `test_cast_and_clean_types_converts_numeric_strings` | String columns become correct numeric/timestamp types | Pass | Not run |
+| 14 | `test_cast_and_clean_types_null_on_bad_value` | Malformed numeric string casts to null, not a crash | Pass | Not run |
+| 15 | `test_filter_invalid_records_drops_unknown_event_type` | Unknown `event_type` rows are dropped | Pass | Not run |
+| 16 | `test_filter_invalid_records_drops_negative_price` | Negative price rows are dropped | Pass | Not run |
+| 17 | `test_filter_invalid_records_drops_purchase_with_zero_quantity` | Purchase with `quantity=0` is dropped | Pass | Not run |
+| 18 | `test_filter_invalid_records_keeps_valid_view_with_zero_quantity` | A view with `quantity=0` is kept — the zero-quantity rule applies to purchases only | Pass | Not run |
+| 19 | `test_deduplicate_events_removes_duplicate_ids` | Duplicate `event_id` within a batch collapses to 1 row | Pass | Not run |
+| 20 | `test_add_derived_fields_computes_total_amount_for_purchase` | `total_amount = quantity * price` for purchases | Pass | Not run |
+| 21 | `test_add_derived_fields_zero_total_amount_for_view` | `total_amount` is 0 for views | Pass | Not run |
+| 22 | `test_transform_events_end_to_end` | Full transform: invalid dropped, dupes collapsed, fields added | Pass | Not run |
+
+### Unit — SQL structure (`tests/test_database.py`)
+
+| # | Test | What It Verifies | Expected Result | Actual Result |
+|---|---|---|---|---|
+| 23 | `test_create_tables_sql_defines_events_table` | `create_tables.sql` defines the table with a `PRIMARY KEY` | Pass | Not run |
+| 24 | `test_create_tables_sql_has_expected_columns` | All nine expected columns are present | Pass | Not run |
+| 25 | `test_validation_queries_file_is_nonempty_and_has_select_statements` | `validation_queries.sql` holds at least five `SELECT`s | Pass | Not run |
+
+### Integration — database (`tests/test_database.py`)
+
+| # | Test | What It Verifies | Expected Result | Actual Result |
+|---|---|---|---|---|
+| 26 | `test_events_table_exists` | `events` table exists in the target DB | Pass / Skip if DB unreachable | Not run |
+| 27 | `test_duplicate_event_id_is_rejected` | DB rejects a second insert with the same `event_id` | Pass / Skip if DB unreachable | Not run |
+
+> **How to read "Actual Result".** Tests 1–12 were executed and passed. Tests
+> 13–27 are marked *Not run* because they were never executed in this
+> environment, not because they failed: 13–22 need a local PySpark session and
+> 26–27 need a reachable PostgreSQL instance. Re-run the suite
+> (`docker compose run --rm tests`) and replace those cells with what you
+> actually observe. Do not copy the Expected column across — an unverified
+> "Pass" is worse than an honest "Not run".
 
 ## Manual End-to-End Test Plan
 
-| Step | Action | Expected Outcome |
-|---|---|---|
-| 1 | Run `./scripts/generate_events.sh` | New CSV files appear in `data/incoming/` every `interval_seconds` |
-| 2 | Run `./scripts/run_streaming.sh` | Log shows "Streaming query started" and periodic "Processing micro-batch" lines |
-| 3 | Query `SELECT COUNT(*) FROM events;` | Count increases over time, roughly matching generated events minus intentionally-invalid ones |
-| 4 | Stop and restart the streaming job | No duplicate rows appear (checkpoint + `PRIMARY KEY` both protect against this) |
-| 5 | Manually drop a malformed CSV into `data/incoming/` (e.g. missing columns) | Job logs the issue via `DROPMALFORMED`/filtering, does not crash |
+Fill in "Actual Outcome" as you work through the steps.
 
+| Step | Action | Expected Outcome | Actual Outcome |
+|---|---|---|---|
+| 1 | Start the generator (`docker compose up -d generator`, or `python -m src.generator.data_generator`) | New `events_<n>.csv` files appear in `data/incoming/`, numbered upward, every `interval_seconds` | |
+| 2 | Start the streaming job (`docker compose up -d spark`, or `spark-submit ... spark_streaming_to_postgres.py`) | Log shows "Streaming query started" then periodic "Processing micro-batch" lines | |
+| 3 | Query `SELECT COUNT(*) FROM events;` | Count increases over time, roughly matching generated events minus intentionally-invalid ones | |
+| 4 | Stop and restart the streaming job | No duplicate rows appear (checkpoint + `PRIMARY KEY` both protect against this) | |
+| 5 | Restart the generator | Numbering resumes above the highest existing file; no CSV is overwritten | |
+| 6 | Manually drop a malformed CSV into `data/incoming/` (e.g. missing columns) | Job logs the issue via `DROPMALFORMED`/filtering, does not crash | |
+| 7 | Stop PostgreSQL briefly while the job runs | Batch write fails and is logged; the streaming query stays alive and recovers on a later trigger | |
+| 8 | Check `outputs/performance/batch_metrics.csv` | One row per successfully written batch, with plausible timings | |
+
+## What the Brief Asks Us to Test
+
+Mapping the brief's checklist onto the tests above:
+
+| Question from the brief | Covered by |
+|---|---|
+| Are the CSV files being generated correctly? | Tests 1–12; manual step 1 |
+| Is Spark detecting and processing new files? | Manual steps 1–2 |
+| Are the data transformations correct? | Tests 13–22 |
+| Is data being written into PostgreSQL without errors? | Tests 26–27; manual steps 3–4 |
+| Are performance metrics within expected limits? | Manual step 8; `docs/performance_metrics.md` |

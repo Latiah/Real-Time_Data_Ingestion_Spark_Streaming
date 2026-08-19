@@ -1,0 +1,128 @@
+# Runs the entire pipeline in containers, so PostgreSQL, Java, Spark and a
+# PySpark-compatible Python do not have to be installed on the host.
+#
+#   docker compose up --build              start postgres + schema + generator + spark
+#   docker compose logs -f spark           watch the streaming job
+#   docker compose down                    stop everything (database is kept)
+#   docker compose down -v                 stop and wipe database + checkpoints
+#
+# Credentials are read from .env on the host (POSTGRES_USER / POSTGRES_DB /
+# POSTGRES_PASSWORD). See docs/docker_guide.md.
+
+name: realtime-spark-postgres
+
+# Shared definition for the two application services (generator, spark).
+x-app: &app
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  environment:
+    # POSTGRES_HOST is the compose service name, not localhost: inside a
+    # container, localhost is the container itself. This value overrides the
+    # POSTGRES_HOST in .env because load_dotenv() does not overwrite
+    # variables that are already set in the environment.
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: 5432
+    POSTGRES_DB: ${POSTGRES_DB:-realtime_events}
+    POSTGRES_USER: ${POSTGRES_USER:-postgres}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+  volumes:
+    # config/ is mounted so config.yaml can be tuned without a rebuild.
+    - ./config:/app/config:ro
+    # The generator writes CSVs here and Spark reads them: both services
+    # mount the same host directory, which also makes the files inspectable
+    # from Windows.
+    - ./data:/app/data
+    - ./logs:/app/logs
+    - ./outputs:/app/outputs
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-realtime_events}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      # Exposed so host tools (pgAdmin, DBeaver, psql) can still connect.
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Mounted read-only so `docker compose exec postgres psql -f /sql/...`
+      # can run the validation queries.
+      - ./sql:/sql:ro
+    healthcheck:
+      # -h 127.0.0.1 forces a TCP check. Without it, pg_isready uses the Unix
+      # socket and reports "ready" during the entrypoint's initdb phase, when
+      # the temporary server is socket-only -- dependent services then start
+      # too early and get "connection refused".
+      # $$ escapes the $ so compose passes it through to the container shell.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # One-shot service that applies the schema, replacing setup_database.sh.
+  # The database itself is created by the postgres image from POSTGRES_DB, so
+  # sql/postgres_setup.sql (CREATE DATABASE) is not needed here.
+  #
+  # This runs on every `up` rather than as a /docker-entrypoint-initdb.d
+  # mount, because initdb scripts only ever run against a brand-new data
+  # directory -- a later edit to create_tables.sql would be silently ignored.
+  # create_tables.sql is idempotent (CREATE ... IF NOT EXISTS), so re-running
+  # it is safe.
+  db-init:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ./sql:/sql:ro
+    command: >
+      psql -h postgres
+           -U ${POSTGRES_USER:-postgres}
+           -d ${POSTGRES_DB:-realtime_events}
+           -v ON_ERROR_STOP=1
+           -f /sql/create_tables.sql
+    restart: "no"
+
+  generator:
+    <<: *app
+    command: python -m src.generator.data_generator
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  spark:
+    <<: *app
+    # sh -c so $POSTGRES_JDBC_JAR_PATH (set in the Dockerfile) is expanded by
+    # the shell; $$ keeps compose from interpolating it from the host .env.
+    command: sh -c 'spark-submit --jars "$$POSTGRES_JDBC_JAR_PATH" spark_streaming_to_postgres.py'
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    ports:
+      - "4040:4040"   # Spark UI: http://localhost:4040
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./outputs:/app/outputs
+      # Checkpoints live in a named volume rather than a host bind mount:
+      # Spark's checkpoint metadata relies on atomic renames, which are less
+      # reliable across the Windows/Linux filesystem boundary.
+      - checkpoints:/app/checkpoints
+
+  # Opt-in service: `docker compose run --rm tests`
+  tests:
+    <<: *app
+    profiles: ["tools"]
+    command: pytest
+
+volumes:
+  pgdata:
+  checkpoints:

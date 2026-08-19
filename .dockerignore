@@ -1,0 +1,31 @@
+# Keep the build context small and secrets out of the image.
+
+.git
+.gitignore
+
+# Secrets: the containers get their credentials from docker-compose.yml
+# (which reads .env on the host), never from a copy baked into the image.
+.env
+
+# Host virtualenv -- the image installs its own dependencies
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# The JDBC driver is downloaded into the image by docker/Dockerfile
+drivers/
+
+# Runtime state -- provided at run time by volumes, not the image
+checkpoints/
+data/incoming/
+data/processed/
+logs/
+outputs/
+
+# Not needed at run time
+docs/
+.idea/
+.vscode/
