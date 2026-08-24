@@ -39,3 +39,19 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+
+# The container deliberately runs as root.
+#
+# A non-root USER was tried and reverted: this project's state lives in a
+# bind-mounted host tree (data/, logs/, outputs/) plus a named volume
+# (checkpoints/), and both outlive any single container. Files already written
+# by a previous run are owned by that run's uid, so switching uid makes them
+# unappendable -- in practice the streaming query died with
+# "PermissionError: /app/outputs/performance/batch_metrics.csv" mid-run, and
+# Spark could not write its checkpoint metadata either.
+#
+# Running as root inside a container is a hardening concern rather than a
+# correctness one, and for a local single-machine project it is the lesser
+# problem. Making non-root work properly would mean matching the host uid at
+# build time (--build-arg UID=$(id -u)) and chowning the existing volumes --
+# worth doing if this were ever deployed, not to run the lab locally.

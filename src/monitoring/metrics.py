@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +26,23 @@ METRICS_FILENAME = "batch_metrics.csv"
 METRICS_FIELDS = ["batch_id", "record_count", "elapsed_seconds", "throughput_rows_per_sec", "recorded_at"]
 
 
+def _finite(value: str) -> float | None:
+    """
+    Parse a CSV cell as a finite float, or return None.
+
+    Guards the aggregates below against non-numeric, blank, and infinite
+    cells. `inf` matters in particular: an older version of this module wrote
+    it whenever a batch was measured at zero seconds, and because the metrics
+    file is append-only, one such row would otherwise make every average
+    computed from it `inf` forever.
+    """
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
 def _metrics_file() -> Path:
     return get_paths_config().performance_dir / METRICS_FILENAME
 
@@ -34,7 +52,10 @@ def record_batch_metrics(batch_id: int, record_count: int, elapsed_seconds: floa
     path = _metrics_file()
     file_exists = path.exists()
 
-    throughput = record_count / elapsed_seconds if elapsed_seconds > 0 else float("inf")
+    # Left blank rather than recorded as inf when the batch was too fast to
+    # measure: an infinite cell would propagate into every average derived
+    # from this append-only file. A blank is skipped by _finite() instead.
+    throughput = round(record_count / elapsed_seconds, 2) if elapsed_seconds > 0 else ""
 
     with open(path, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=METRICS_FIELDS)
@@ -45,7 +66,7 @@ def record_batch_metrics(batch_id: int, record_count: int, elapsed_seconds: floa
                 "batch_id": batch_id,
                 "record_count": record_count,
                 "elapsed_seconds": round(elapsed_seconds, 4),
-                "throughput_rows_per_sec": round(throughput, 2),
+                "throughput_rows_per_sec": throughput,
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -69,20 +90,38 @@ def generate_performance_report() -> dict:
     if not rows:
         return {}
 
-    total_records = sum(int(r["record_count"]) for r in rows)
-    total_time = sum(float(r["elapsed_seconds"]) for r in rows)
-    avg_batch_time = total_time / len(rows)
-    avg_throughput = sum(float(r["throughput_rows_per_sec"]) for r in rows) / len(rows)
-    overall_throughput = total_records / total_time if total_time > 0 else float("inf")
+    total_records = sum(int(r["record_count"]) for r in rows if _finite(r["record_count"]) is not None)
 
-    return {
+    batch_times = [t for t in (_finite(r["elapsed_seconds"]) for r in rows) if t is not None]
+    throughputs = [t for t in (_finite(r["throughput_rows_per_sec"]) for r in rows) if t is not None]
+
+    total_time = sum(batch_times)
+
+    report = {
         "total_batches": len(rows),
         "total_records_processed": total_records,
         "total_processing_time_seconds": round(total_time, 4),
-        "average_batch_processing_time_seconds": round(avg_batch_time, 4),
-        "average_throughput_rows_per_sec": round(avg_throughput, 2),
-        "overall_throughput_rows_per_sec": round(overall_throughput, 2),
+        "average_batch_processing_time_seconds": (
+            round(total_time / len(batch_times), 4) if batch_times else None
+        ),
+        "average_throughput_rows_per_sec": (
+            round(sum(throughputs) / len(throughputs), 2) if throughputs else None
+        ),
+        # Guarded rather than reported as inf: a total of zero means nothing
+        # measurable was written, for which no throughput figure is honest.
+        "overall_throughput_rows_per_sec": (
+            round(total_records / total_time, 2) if total_time > 0 else None
+        ),
     }
+
+    skipped = len(rows) - len(throughputs)
+    if skipped:
+        logger.warning(
+            "%d of %d rows had an unusable throughput value and were excluded "
+            "from the averages.", skipped, len(rows),
+        )
+
+    return report
 
 
 if __name__ == "__main__":

@@ -31,5 +31,4 @@ data/processed/*
 outputs/performance/*
 !outputs/performance/.gitkeep
 
-# JDBC driver jar (downloaded locally, see docs/user_guide.md)
 drivers/

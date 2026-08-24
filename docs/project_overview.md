@@ -79,6 +79,13 @@ Full diagram and per-component explanation: `docs/architecture.md`.
   streaming (watermarks, state stores), which is unnecessary complexity
   for this project's scale. The database constraint is simpler and just as
   effective here.
+- **A staging table between Spark and `events`**: Spark's JDBC writer can only
+  append or overwrite, never "insert and skip duplicates". Since a failed batch
+  is replayed by Spark on restart — and may have committed some partitions
+  before failing — a plain append would hit the `event_id` primary key on
+  replay and crash-loop. Each batch is therefore bulk-loaded into
+  `events_staging` and merged with `ON CONFLICT DO NOTHING`, which keeps the
+  bulk writer while making the write idempotent.
 
 ## Expected Output
 

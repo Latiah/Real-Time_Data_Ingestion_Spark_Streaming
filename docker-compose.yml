@@ -118,10 +118,17 @@ services:
       - checkpoints:/app/checkpoints
 
   # Opt-in service: `docker compose run --rm tests`
+  #
+  # depends_on matters here: without it the database integration tests in
+  # tests/test_database.py find nothing to connect to and skip themselves,
+  # which silently leaves the PostgreSQL write path untested.
   tests:
     <<: *app
     profiles: ["tools"]
     command: pytest
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:

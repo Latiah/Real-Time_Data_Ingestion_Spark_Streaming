@@ -1,13 +1,13 @@
 # Running the Pipeline with Docker
 
-Docker is the supported way to run the pipeline there. Docker also removes
-three version traps that bite on any host:
+Docker is the supported way to run this pipeline. It removes four version and
+tooling traps that otherwise have to be solved by hand on every host:
 
 | Requirement | Why the host often fails | How Docker fixes it |
 | --- | --- | --- |
 | Python 3.10–3.12 | PySpark 3.5.1 does not support Python 3.13 | Image pins Python 3.11 |
 | Java 8/11/17 | Spark 3.5.x does not officially support Java 21+ | Image installs JDK 17 |
-| PostgreSQL JDBC jar | Manual download into `./drivers/` | Baked into the image |
+| PostgreSQL JDBC jar | Has to be downloaded and its path configured | Baked into the image at a fixed path |
 | `psql` client | Not installed on Windows by default | Provided by the `postgres` image |
 
 ## Prerequisites
@@ -25,11 +25,12 @@ Then edit `.env` and set a real `POSTGRES_PASSWORD`. Compose reads
 `POSTGRES_USER`, `POSTGRES_DB`, and `POSTGRES_PASSWORD` from this file for both
 the database and the application containers.
 
-`POSTGRES_HOST` and `POSTGRES_JDBC_JAR_PATH` in `.env` are only used for native
-(non-Docker) runs. Compose overrides both, because inside a container
-`localhost` is the container itself, not the database. This works because
-`load_dotenv()` does not overwrite variables that are already set in the
-environment — see [settings.py](../src/config/settings.py).
+`POSTGRES_HOST` and `POSTGRES_JDBC_JAR_PATH` in `.env` are ignored under
+Docker: Compose overrides both, because inside a container `localhost` is the
+container itself rather than the database, and the driver jar lives at a fixed
+path in the image. The override works because `load_dotenv()` does not
+overwrite variables that are already set in the environment — see
+[settings.py](../src/config/settings.py).
 
 ## 2. Start everything
 
@@ -41,13 +42,14 @@ Four services come up in order:
 
 1. **`postgres`** — PostgreSQL 16. Creates the `realtime_events` database from
    `POSTGRES_DB` and reports ready via a `pg_isready` healthcheck.
-2. **`db-init`** — one-shot; applies [sql/create_tables.sql](../sql/create_tables.sql).
-   This replaces `scripts/setup_database.sh`. `sql/postgres_setup.sql`
-   (`CREATE DATABASE`) is not needed, because the `postgres` image already
-   creates the database.
-3. **`generator`** — runs `python -m src.generator.data_generator`, writing CSV
-   batches into `data/incoming/`.
-4. **`spark`** — runs `spark-submit --jars <jdbc jar> src/streaming/streaming_pipeline.py`.
+2. **`db-init`** — one-shot; applies [sql/create_tables.sql](../sql/create_tables.sql),
+   then exits. [sql/postgres_setup.sql](../sql/postgres_setup.sql) is not used
+   here: it creates the database *and* the table for a manual, non-Docker
+   setup, whereas under Docker the `postgres` image has already created the
+   database from `POSTGRES_DB`, so only the table step is needed.
+3. **`generator`** — runs `python -m src.generator.data_generator`, writing
+   `events_<n>.csv` batches into `data/incoming/`.
+4. **`spark`** — runs `spark-submit --jars <jdbc jar> spark_streaming_to_postgres.py`.
 
 To run detached and follow just the streaming job:
 
@@ -92,6 +94,9 @@ docker compose exec spark python -m src.monitoring.metrics
 ```powershell
 docker compose run --rm tests
 ```
+
+It depends on `db-init`, so the database integration tests run against a live
+PostgreSQL instead of skipping themselves.
 
 ## Stopping
 

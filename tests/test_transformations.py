@@ -7,6 +7,8 @@ dependency on streaming APIs, so they can be tested exactly like batch code.
 This is an intentional design benefit called out in transformations.py.
 """
 
+from decimal import Decimal
+
 import pytest
 from pyspark.sql import Row, SparkSession
 
@@ -52,7 +54,9 @@ def test_cast_and_clean_types_converts_numeric_strings(spark):
     assert result["user_id"] == 10
     assert result["product_id"] == 5
     assert result["quantity"] == 2
-    assert abs(result["price"] - 19.99) < 1e-6
+    # Exact equality, not a tolerance: price is a Decimal, so 19.99 is
+    # represented precisely rather than approximated.
+    assert result["price"] == Decimal("19.99")
     assert result["event_timestamp"] is not None
 
 
@@ -100,14 +104,14 @@ def test_add_derived_fields_computes_total_amount_for_purchase(spark):
     df = spark.createDataFrame([_raw_row(quantity="3", price="10.00")])
     cleaned = cast_and_clean_types(df)
     derived = add_derived_fields(cleaned).collect()[0]
-    assert abs(derived["total_amount"] - 30.00) < 1e-6
+    assert derived["total_amount"] == Decimal("30.00")
 
 
 def test_add_derived_fields_zero_total_amount_for_view(spark):
     df = spark.createDataFrame([_raw_row(event_type="view", quantity="0")])
     cleaned = cast_and_clean_types(df)
     derived = add_derived_fields(cleaned).collect()[0]
-    assert derived["total_amount"] == 0.0
+    assert derived["total_amount"] == Decimal("0.00")
 
 
 def test_transform_events_end_to_end(spark):

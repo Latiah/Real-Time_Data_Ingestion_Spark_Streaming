@@ -16,8 +16,9 @@
 -- psql execute that result via \gexec.
 SELECT 'CREATE DATABASE realtime_events'
 WHERE NOT EXISTS (
-    SELECT FROM pg_database WHERE datname = 'realtime_events'
-)\gexec
+    SELECT 1 FROM pg_database WHERE datname = 'realtime_events'
+)
+\gexec
 
 -- Reconnect to the new database; the table must be created inside it, not in
 -- the maintenance database this script started from.

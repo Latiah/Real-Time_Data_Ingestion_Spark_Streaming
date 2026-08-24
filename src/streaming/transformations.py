@@ -13,11 +13,20 @@ import logging
 
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
-from pyspark.sql.types import DoubleType, IntegerType
+from pyspark.sql.types import DecimalType, IntegerType
 
 logger = logging.getLogger(__name__)
 
 VALID_EVENT_TYPES = ("view", "purchase")
+
+# Money is handled as exact decimals, not floats: binary floating point cannot
+# represent most two-decimal values, so a float would introduce rounding error
+# into prices and revenue totals. These widths mirror the column definitions in
+# sql/create_tables.sql -- price NUMERIC(10, 2), total_amount NUMERIC(12, 2) --
+# so Spark and PostgreSQL agree on precision and no silent coercion happens on
+# write.
+PRICE_TYPE = DecimalType(10, 2)
+AMOUNT_TYPE = DecimalType(12, 2)
 
 
 def cast_and_clean_types(df: DataFrame) -> DataFrame:
@@ -33,7 +42,7 @@ def cast_and_clean_types(df: DataFrame) -> DataFrame:
         .withColumn("user_id", F.col("user_id").cast(IntegerType()))
         .withColumn("product_id", F.col("product_id").cast(IntegerType()))
         .withColumn("quantity", F.col("quantity").cast(IntegerType()))
-        .withColumn("price", F.col("price").cast(DoubleType()))
+        .withColumn("price", F.col("price").cast(PRICE_TYPE))
         .withColumn("event_timestamp", F.to_timestamp(F.col("event_timestamp")))
     )
 
@@ -86,12 +95,20 @@ def add_derived_fields(df: DataFrame) -> DataFrame:
     Add derived/computed columns.
 
     total_amount = quantity * price, meaningful only for purchase events;
-    views get 0.0 rather than null so downstream SQL aggregations
+    views get 0 rather than null so downstream SQL aggregations
     (SUM(total_amount)) don't need extra null-handling.
+
+    Both branches are cast to AMOUNT_TYPE explicitly. Spark resolves a CASE
+    expression to a single common type, so leaving the else-branch as a float
+    literal would promote the whole column back to double and undo the exact
+    decimal arithmetic.
     """
     return df.withColumn(
         "total_amount",
-        F.when(F.col("event_type") == "purchase", F.col("quantity") * F.col("price")).otherwise(F.lit(0.0)),
+        F.when(
+            F.col("event_type") == "purchase",
+            (F.col("quantity") * F.col("price")).cast(AMOUNT_TYPE),
+        ).otherwise(F.lit(0).cast(AMOUNT_TYPE)),
     )
 
 

@@ -6,12 +6,15 @@ Wires together:
     transformations.transform_events()  -- cleaning/validation/derived fields
     database.postgres.write_batch_to_postgres() -- foreachBatch sink
 
-Run with:
-    spark-submit --jars <path-to-postgres-jdbc.jar> \
-        src/streaming/streaming_pipeline.py
+This module holds the wiring only; it is not the spark-submit target.
+The entry point is spark_streaming_to_postgres.py in the repository root,
+which calls run_pipeline() below:
 
-See docs/user_guide.md for the exact command, including how the JDBC jar
-is obtained and referenced.
+    spark-submit --jars <path-to-postgres-jdbc.jar> spark_streaming_to_postgres.py
+
+Under Docker that command is issued by the `spark` service in
+docker-compose.yml, with the JDBC jar already present in the image. See
+docs/user_guide.md.
 """
 
 from __future__ import annotations

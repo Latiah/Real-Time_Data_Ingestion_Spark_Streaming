@@ -55,7 +55,7 @@ Where each item from the project brief lives in this repository.
 | `user_guide.md` | [docs/user_guide.md](docs/user_guide.md) | Step-by-step run instructions |
 | `test_cases.md` | [docs/test_cases.md](docs/test_cases.md) | 27 automated tests + manual E2E plan |
 | `performance_metrics.md` | [docs/performance_metrics.md](docs/performance_metrics.md) | Measured throughput and latency |
-| `system_architecture.png` | [docs/system_architecture.png](docs/system_architecture.png) | Data-flow diagram (regenerate with [tools/render_architecture.py](tools/render_architecture.py)) |
+| `system_architecture.png` | [docs/system_architecture.png](docs/system_architecture.png) | Data-flow diagram |
 
 ## Repository Structure
 
@@ -109,9 +109,6 @@ Real-Time_Data_Ingestion_Spark_Streaming/
 │   ├── test_transformations.py       # 10 tests
 │   └── test_database.py              # 5 tests (2 need a live DB)
 │
-├── tools/
-│   └── render_architecture.py        # regenerates docs/system_architecture.png
-│
 ├── docs/
 │   ├── project_overview.md           # components and data flow
 │   ├── architecture.md               # per-component walkthrough
@@ -123,7 +120,6 @@ Real-Time_Data_Ingestion_Spark_Streaming/
 │
 ├── data/
 │   ├── incoming/                     # CSVs land here; Spark watches this dir
-│   └── processed/                    # reserved for archiving
 ├── checkpoints/                      # Spark streaming checkpoint state
 ├── logs/
 └── outputs/

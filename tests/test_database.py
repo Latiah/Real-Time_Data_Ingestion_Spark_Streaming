@@ -9,7 +9,7 @@ Split deliberately into two groups:
 - Integration tests: require a real, reachable PostgreSQL instance with the
   schema from sql/create_tables.sql already applied. They are skipped
   automatically if the DB isn't reachable, rather than failing the whole
-  suite -- see docs/testing.md for how to run them manually.
+  suite -- see docs/test_cases.md for how to run them.
 """
 
 from __future__ import annotations
@@ -54,38 +54,42 @@ def test_validation_queries_file_is_nonempty_and_has_select_statements():
 # Integration tests (require a live PostgreSQL instance)
 # ---------------------------------------------------------------------------
 
-def _db_available() -> bool:
+CONNECT_TIMEOUT_SECONDS = 3
+
+
+@pytest.fixture
+def db_connection():
+    """
+    Yield a live connection, or skip the test if there isn't one.
+
+    A fixture rather than a module-level `pytest.mark.skipif`: the latter is
+    evaluated at import time, so merely *collecting* this file would open a
+    TCP connection, and with no timeout an unreachable host would stall
+    collection for the OS default. Here the check happens only when an
+    integration test actually runs, and it fails fast.
+    """
     try:
-        conn = get_connection()
-        conn.close()
-        return True
-    except Exception:
-        return False
+        conn = get_connection(connect_timeout=CONNECT_TIMEOUT_SECONDS)
+    except Exception as exc:
+        pytest.skip(f"No reachable PostgreSQL instance configured via .env: {exc}")
 
-
-requires_db = pytest.mark.skipif(
-    not _db_available(),
-    reason="No reachable PostgreSQL instance configured via .env -- see docs/testing.md",
-)
-
-
-@requires_db
-def test_events_table_exists():
-    conn = get_connection()
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'events')"
-            )
-            (exists,) = cur.fetchone()
-            assert exists
+        yield conn
     finally:
         conn.close()
 
 
-@requires_db
-def test_duplicate_event_id_is_rejected():
-    conn = get_connection()
+def test_events_table_exists(db_connection):
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'events')"
+        )
+        (exists,) = cur.fetchone()
+        assert exists
+
+
+def test_duplicate_event_id_is_rejected(db_connection):
+    conn = db_connection
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -108,7 +112,7 @@ def test_duplicate_event_id_is_rejected():
                 )
             conn.rollback()
     finally:
+        # The fixture closes the connection; this only removes the test row.
         with conn.cursor() as cur:
             cur.execute("DELETE FROM events WHERE event_id = 'test-dup-id'")
             conn.commit()
-        conn.close()

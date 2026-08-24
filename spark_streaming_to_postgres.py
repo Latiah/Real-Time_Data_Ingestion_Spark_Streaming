@@ -13,13 +13,9 @@ so each stage can be unit-tested on its own:
 
 Run with:
 
-    spark-submit --jars <path-to-postgres-jdbc.jar> spark_streaming_to_postgres.py
-
-or, with Docker (no local Spark, Java, or JDBC jar needed):
-
     docker compose up --build
 
-See docs/user_guide.md for both paths in full.
+See docs/user_guide.md for the full run instructions.
 """
 
 from __future__ import annotations

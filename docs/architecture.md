@@ -54,8 +54,10 @@ project's local, single-machine scope.
 
 Pure DataFrame → DataFrame functions, run in this order:
 
-1. `cast_and_clean_types` — string → int/double/timestamp, nulls on
-   cast failure rather than crashing.
+1. `cast_and_clean_types` — string → int/decimal/timestamp, nulls on
+   cast failure rather than crashing. Money uses `DecimalType`, matching the
+   `NUMERIC` columns in `create_tables.sql`, so prices and totals stay exact
+   instead of picking up binary floating-point error.
 2. `filter_invalid_records` — drops rows with nulls in required fields,
    unrecognized `event_type`, negative price/quantity, or purchases with
    `quantity <= 0`.
@@ -77,8 +79,31 @@ Spark session.
   duplicate-prevention mechanism (Spark's own dedup is only within a
   micro-batch — see above).
 - `write_batch_to_postgres` is passed to `writeStream.foreachBatch(...)`
-  and uses Spark's JDBC batch writer (`DataFrame.write.jdbc`) rather than
-  row-by-row inserts.
+  and uses Spark's JDBC batch writer (`DataFrame.write.format("jdbc")`)
+  rather than row-by-row inserts.
+- The batch is `persist()`ed, because the row count and the write are two
+  separate Spark actions and would otherwise each recompute the whole batch.
+- **The write is a two-step, idempotent merge.** Each micro-batch is bulk-loaded
+  into `events_staging` (`overwrite` + `truncate=true`), then merged into
+  `events` with `INSERT ... SELECT ... ON CONFLICT (event_id) DO NOTHING`.
+  Spark's JDBC writer offers only append and overwrite, with no way to skip
+  existing rows, so a plain append cannot survive a retry — see below.
+- **A failed write is re-raised, not swallowed.** Returning normally from
+  `foreachBatch` tells Spark the batch succeeded, so Spark would commit the
+  offsets and never re-read those files, turning a transient database error
+  into silent data loss. Raising leaves the batch uncommitted for the next
+  restart to replay.
+- Those two points depend on each other. A batch that fails partway has
+  already committed some of its partitions, so the replay re-presents rows
+  that are present. With a plain append that replay raises a primary-key
+  violation, fails again, and crash-loops forever. The merge makes the replay
+  a no-op for rows already stored, so retrying always converges. Observed in
+  practice: a replayed batch logs
+  `Batch 32 written (0 of 150 records inserted, 150 already present)` and the
+  query carries on.
+- Metrics recording is wrapped in its own `try`/`except`. It runs *after* the
+  rows are committed, so letting it fail would kill the query over an
+  unwritable CSV and strand a batch whose data was already durable.
 
 ### 6. Validation & Metrics (`sql/validation_queries.sql`,
 `src/monitoring/metrics.py`)

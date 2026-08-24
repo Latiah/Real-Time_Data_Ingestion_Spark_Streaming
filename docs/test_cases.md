@@ -48,39 +48,34 @@ in this environment — see the note below the table before reading it.
 
 | # | Test | What It Verifies | Expected Result | Actual Result |
 |---|---|---|---|---|
-| 13 | `test_cast_and_clean_types_converts_numeric_strings` | String columns become correct numeric/timestamp types | Pass | Not run |
-| 14 | `test_cast_and_clean_types_null_on_bad_value` | Malformed numeric string casts to null, not a crash | Pass | Not run |
-| 15 | `test_filter_invalid_records_drops_unknown_event_type` | Unknown `event_type` rows are dropped | Pass | Not run |
-| 16 | `test_filter_invalid_records_drops_negative_price` | Negative price rows are dropped | Pass | Not run |
-| 17 | `test_filter_invalid_records_drops_purchase_with_zero_quantity` | Purchase with `quantity=0` is dropped | Pass | Not run |
-| 18 | `test_filter_invalid_records_keeps_valid_view_with_zero_quantity` | A view with `quantity=0` is kept — the zero-quantity rule applies to purchases only | Pass | Not run |
-| 19 | `test_deduplicate_events_removes_duplicate_ids` | Duplicate `event_id` within a batch collapses to 1 row | Pass | Not run |
-| 20 | `test_add_derived_fields_computes_total_amount_for_purchase` | `total_amount = quantity * price` for purchases | Pass | Not run |
-| 21 | `test_add_derived_fields_zero_total_amount_for_view` | `total_amount` is 0 for views | Pass | Not run |
-| 22 | `test_transform_events_end_to_end` | Full transform: invalid dropped, dupes collapsed, fields added | Pass | Not run |
+| 13 | `test_cast_and_clean_types_converts_numeric_strings` | String columns become correct numeric/timestamp types | Pass | Pass |
+| 14 | `test_cast_and_clean_types_null_on_bad_value` | Malformed numeric string casts to null, not a crash | Pass | Pass |
+| 15 | `test_filter_invalid_records_drops_unknown_event_type` | Unknown `event_type` rows are dropped | Pass | Pass |
+| 16 | `test_filter_invalid_records_drops_negative_price` | Negative price rows are dropped | Pass | Pass |
+| 17 | `test_filter_invalid_records_drops_purchase_with_zero_quantity` | Purchase with `quantity=0` is dropped | Pass | Pass |
+| 18 | `test_filter_invalid_records_keeps_valid_view_with_zero_quantity` | A view with `quantity=0` is kept — the zero-quantity rule applies to purchases only | Pass | Pass |
+| 19 | `test_deduplicate_events_removes_duplicate_ids` | Duplicate `event_id` within a batch collapses to 1 row | Pass | Pass |
+| 20 | `test_add_derived_fields_computes_total_amount_for_purchase` | `total_amount = quantity * price` for purchases | Pass | Pass |
+| 21 | `test_add_derived_fields_zero_total_amount_for_view` | `total_amount` is 0 for views | Pass | Pass |
+| 22 | `test_transform_events_end_to_end` | Full transform: invalid dropped, dupes collapsed, fields added | Pass | Pass |
 
 ### Unit — SQL structure (`tests/test_database.py`)
 
 | # | Test | What It Verifies | Expected Result | Actual Result |
 |---|---|---|---|---|
-| 23 | `test_create_tables_sql_defines_events_table` | `create_tables.sql` defines the table with a `PRIMARY KEY` | Pass | Not run |
-| 24 | `test_create_tables_sql_has_expected_columns` | All nine expected columns are present | Pass | Not run |
-| 25 | `test_validation_queries_file_is_nonempty_and_has_select_statements` | `validation_queries.sql` holds at least five `SELECT`s | Pass | Not run |
+| 23 | `test_create_tables_sql_defines_events_table` | `create_tables.sql` defines the table with a `PRIMARY KEY` | Pass | Pass |
+| 24 | `test_create_tables_sql_has_expected_columns` | All nine expected columns are present | Pass | Pass |
+| 25 | `test_validation_queries_file_is_nonempty_and_has_select_statements` | `validation_queries.sql` holds at least five `SELECT`s | Pass | Pass |
 
 ### Integration — database (`tests/test_database.py`)
 
 | # | Test | What It Verifies | Expected Result | Actual Result |
 |---|---|---|---|---|
-| 26 | `test_events_table_exists` | `events` table exists in the target DB | Pass / Skip if DB unreachable | Not run |
-| 27 | `test_duplicate_event_id_is_rejected` | DB rejects a second insert with the same `event_id` | Pass / Skip if DB unreachable | Not run |
+| 26 | `test_events_table_exists` | `events` table exists in the target DB | Pass / Skip if DB unreachable | Pass |
+| 27 | `test_duplicate_event_id_is_rejected` | DB rejects a second insert with the same `event_id` | Pass / Skip if DB unreachable | Pass |
 
-> **How to read "Actual Result".** Tests 1–12 were executed and passed. Tests
-> 13–27 are marked *Not run* because they were never executed in this
-> environment, not because they failed: 13–22 need a local PySpark session and
-> 26–27 need a reachable PostgreSQL instance. Re-run the suite
-> (`docker compose run --rm tests`) and replace those cells with what you
-> actually observe. Do not copy the Expected column across — an unverified
-> "Pass" is worse than an honest "Not run".
+> **Provenance of "Actual Result".** All 27 tests were executed together via
+> `docker compose run --build --rm tests` and all 27 passed:
 
 ## Manual End-to-End Test Plan
 
@@ -94,8 +89,9 @@ Fill in "Actual Outcome" as you work through the steps.
 | 4 | Stop and restart the streaming job | No duplicate rows appear (checkpoint + `PRIMARY KEY` both protect against this) | |
 | 5 | Restart the generator | Numbering resumes above the highest existing file; no CSV is overwritten | |
 | 6 | Manually drop a malformed CSV into `data/incoming/` (e.g. missing columns) | Job logs the issue via `DROPMALFORMED`/filtering, does not crash | |
-| 7 | Stop PostgreSQL briefly while the job runs | Batch write fails and is logged; the streaming query stays alive and recovers on a later trigger | |
-| 8 | Check `outputs/performance/batch_metrics.csv` | One row per successfully written batch, with plausible timings | |
+| 7 | Stop PostgreSQL briefly while the job runs | Batch write fails, is logged, and the exception propagates — the streaming query **stops** rather than continuing. Deliberate: returning normally from `foreachBatch` would tell Spark the batch succeeded, committing offsets for rows never written | |
+| 8 | Restart the job after step 7 | The uncommitted batch is replayed and converges rather than crash-looping. Rows already stored are skipped by the `ON CONFLICT DO NOTHING` merge, logged as `Batch N written (0 of M records inserted, M already present)` | |
+| 9 | Check `outputs/performance/batch_metrics.csv` | One row per successfully written batch, with plausible timings | |
 
 ## What the Brief Asks Us to Test
 
